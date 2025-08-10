@@ -52,7 +52,7 @@ Bug fixes:
   the config option ``spotify.search_query_ascii: yes``. :bug:`5699`
 - :doc:`plugins/discogs`: Beets will no longer crash if a release has been
   deleted, and returns a 404.
-* Beets now creates an index for ``album_id`` on the ``ìtems`` sqlite table.
+* Beets now creates an index for ``album_id`` on the ``items`` sqlite table.
   This speeds up queries that filter items by their album significantly.
   :bug:`5809`
 
