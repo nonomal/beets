@@ -287,6 +287,11 @@ class Model(ABC, Generic[D]):
     terms.
     """
 
+    _indices: Sequence[types.Index] = ()
+    """A sequence of `Index` objects that describe the indices to be
+    created for this table.
+    """
+
     @cached_classproperty
     def _types(cls) -> dict[str, types.Type]:
         """Optional types for non-fixed (flexible and computed) fields."""
@@ -1031,7 +1036,9 @@ class Database:
 
         # Set up database schema.
         for model_cls in self._models:
-            self._make_table(model_cls._table, model_cls._fields)
+            self._make_table(
+                model_cls._table, model_cls._fields, model_cls._indices
+            )
             self._make_attribute_table(model_cls._flex_table)
 
     # Primitive access control: connections and transactions.
@@ -1153,20 +1160,32 @@ class Database:
 
     # Schema setup and migration.
 
-    def _make_table(self, table: str, fields: Mapping[str, types.Type]):
+    def _make_table(
+        self,
+        table: str,
+        fields: Mapping[str, types.Type],
+        indices: Sequence[types.Index],
+    ):
         """Set up the schema of the database. `fields` is a mapping
         from field names to `Type`s. Columns are added if necessary.
         """
-        # Get current schema.
+        # Get current schema and existing indexes
         with self.transaction() as tx:
             rows = tx.query("PRAGMA table_info(%s)" % table)
-        current_fields = {row[1] for row in rows}
+            current_fields = {row[1] for row in rows}
+            index_rows = tx.query(f"PRAGMA index_list({table})")
+            current_indices = {row[1] for row in index_rows}
 
+        # Skip table creation if the current schema matches the
+        # requested schema (and no indexes are missing).
         field_names = set(fields.keys())
-        if current_fields.issuperset(field_names):
-            # Table exists and has all the required columns.
+        index_names = {index.name for index in indices}
+        if current_fields.issuperset(
+            field_names
+        ) and current_indices.issuperset(index_names):
             return
 
+        # Table schema handling
         if not current_fields:
             # No table exists.
             columns = []
@@ -1188,6 +1207,17 @@ class Database:
 
         with self.transaction() as tx:
             tx.script(setup_sql)
+
+        # Index handling
+        with self.transaction() as tx:
+            for index in indices:
+                if index.name in current_indices:
+                    continue
+
+                columns_str = ", ".join(index.columns)
+                tx.script(
+                    f"CREATE INDEX {index.name} ON {table} ({columns_str})"
+                )
 
     def _make_attribute_table(self, flex_table: str):
         """Create a table and associated index for flexible attributes

@@ -20,7 +20,15 @@ import re
 import time
 import typing
 from abc import ABC
-from typing import TYPE_CHECKING, Any, Generic, TypeVar, cast
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Generic,
+    NamedTuple,
+    Sequence,
+    TypeVar,
+    cast,
+)
 
 import beets
 from beets import util
@@ -452,6 +460,21 @@ class DurationType(Float):
                 return float(string)
             except ValueError:
                 return self.null
+
+
+class Index(NamedTuple):
+    """A database index.
+
+    A helper class to represent the index
+    information in the schema.
+    """
+
+    name: str
+    columns: Sequence[str]
+    table: str | None = None
+    """As a index is normally bound to a table
+    we may omit it here.
+    """
 
 
 # Shared instances of common types.
