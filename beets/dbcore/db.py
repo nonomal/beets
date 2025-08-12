@@ -26,7 +26,7 @@ from abc import ABC
 from collections import defaultdict
 from collections.abc import Generator, Iterable, Iterator, Mapping, Sequence
 from sqlite3 import Connection
-from typing import TYPE_CHECKING, Any, AnyStr, Callable, Generic
+from typing import TYPE_CHECKING, Any, AnyStr, Callable, Generic, NamedTuple
 
 from typing_extensions import TypeVar  # default value support
 from unidecode import unidecode
@@ -287,7 +287,7 @@ class Model(ABC, Generic[D]):
     terms.
     """
 
-    _indices: Sequence[types.Index] = ()
+    _indices: Sequence[Index] = ()
     """A sequence of `Index` objects that describe the indices to be
     created for this table.
     """
@@ -1036,10 +1036,9 @@ class Database:
 
         # Set up database schema.
         for model_cls in self._models:
-            self._make_table(
-                model_cls._table, model_cls._fields, model_cls._indices
-            )
+            self._make_table(model_cls._table, model_cls._fields)
             self._make_attribute_table(model_cls._flex_table)
+            self._migrate_indices(model_cls._table, model_cls._indices)
 
     # Primitive access control: connections and transactions.
 
@@ -1160,32 +1159,20 @@ class Database:
 
     # Schema setup and migration.
 
-    def _make_table(
-        self,
-        table: str,
-        fields: Mapping[str, types.Type],
-        indices: Sequence[types.Index],
-    ):
+    def _make_table(self, table: str, fields: Mapping[str, types.Type]):
         """Set up the schema of the database. `fields` is a mapping
         from field names to `Type`s. Columns are added if necessary.
         """
-        # Get current schema and existing indexes
+        # Get current schema.
         with self.transaction() as tx:
             rows = tx.query("PRAGMA table_info(%s)" % table)
-            current_fields = {row[1] for row in rows}
-            index_rows = tx.query(f"PRAGMA index_list({table})")
-            current_indices = {row[1] for row in index_rows}
+        current_fields = {row[1] for row in rows}
 
-        # Skip table creation if the current schema matches the
-        # requested schema (and no indexes are missing).
         field_names = set(fields.keys())
-        index_names = {index.name for index in indices}
-        if current_fields.issuperset(
-            field_names
-        ) and current_indices.issuperset(index_names):
+        if current_fields.issuperset(field_names):
+            # Table exists and has all the required columns.
             return
 
-        # Table schema handling
         if not current_fields:
             # No table exists.
             columns = []
@@ -1208,17 +1195,6 @@ class Database:
         with self.transaction() as tx:
             tx.script(setup_sql)
 
-        # Index handling
-        with self.transaction() as tx:
-            for index in indices:
-                if index.name in current_indices:
-                    continue
-
-                columns_str = ", ".join(index.columns)
-                tx.script(
-                    f"CREATE INDEX {index.name} ON {table} ({columns_str})"
-                )
-
     def _make_attribute_table(self, flex_table: str):
         """Create a table and associated index for flexible attributes
         for the given entity (if they don't exist).
@@ -1236,6 +1212,33 @@ class Database:
                     ON {0} (entity_id);
                 """.format(flex_table)
             )
+
+    def _migrate_indices(
+        self,
+        table: str,
+        indices: Sequence[Index],
+    ):
+        """Create or replace indices for the given table.
+
+        If the indices already exists and are up to date (i.e., the
+        index name and columns match), nothing is done. Otherwise, the
+        indices are created or replaced.
+        """
+        with self.transaction() as tx:
+            index_rows = tx.query(f"PRAGMA index_list({table})")
+            current_indices = {Index.from_db(tx, row[1]) for row in index_rows}
+
+        _indices = set(indices)
+
+        if current_indices.issuperset(_indices):
+            return
+
+        # May also include missing indices.
+        changed_indices = _indices - current_indices
+
+        with self.transaction() as tx:
+            for index in changed_indices:
+                index.recreate(tx, table)
 
     # Querying.
 
@@ -1306,3 +1309,42 @@ class Database:
         exist.
         """
         return self._fetch(model_cls, MatchQuery("id", id)).get()
+
+
+class Index(NamedTuple):
+    """A helper class to represent the index
+    information in the database schema.
+    """
+
+    name: str
+    columns: Sequence[str]
+
+    def recreate(self, tx: Transaction, table: str) -> None:
+        """Recreate the index in the database.
+
+        This is useful when the index has been changed and needs to be
+        updated.
+        """
+        tx.script(f"DROP INDEX IF EXISTS {self.name}")
+        self.create(tx, table)
+
+    def create(self, tx: Transaction, table: str) -> None:
+        """Create the index in the database."""
+        return tx.script(
+            f"CREATE INDEX {self.name} ON {table} ({', '.join(self.columns)})"
+        )
+
+    @classmethod
+    def from_db(cls, tx: Transaction, name: str) -> Index:
+        """Create an Index object from the database if it exists.
+
+        The name has to exists in the database! Otherwise, an
+        Error will be raised.
+        """
+        rows = tx.query(f"PRAGMA index_info({name})")
+        columns = [row[2] for row in rows]
+        return cls(name, columns)
+
+    def __hash__(self) -> int:
+        """Unique hash for the index based on its name and columns."""
+        return hash((self.name, tuple(self.columns)))

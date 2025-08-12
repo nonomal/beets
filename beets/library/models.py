@@ -717,7 +717,7 @@ class Item(LibModel):
         "added": types.DATE,
     }
     _indices = (
-        types.Index(
+        dbcore.Index(
             name="idx_item_album_id",
             columns=("album_id",),
         ),
