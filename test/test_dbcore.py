@@ -135,6 +135,7 @@ class AnotherModelFixture(ModelFixture1):
         "id": dbcore.types.PRIMARY_ID,
         "foo": dbcore.types.INTEGER,
     }
+    _indices = (Index("another_foo_index", ("foo",)),)
 
 
 class ModelFixture5(ModelFixture1):
