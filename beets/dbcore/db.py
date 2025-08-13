@@ -1225,19 +1225,11 @@ class Database:
         indices are created or replaced.
         """
         with self.transaction() as tx:
-            index_rows = tx.query(f"PRAGMA index_list({table})")
-            current_indices = {Index.from_db(tx, row[1]) for row in index_rows}
-
-        _indices = set(indices)
-
-        if current_indices.issuperset(_indices):
-            return
-
-        # May also include missing indices.
-        changed_indices = _indices - current_indices
-
-        with self.transaction() as tx:
-            for index in changed_indices:
+            current = {
+                Index.from_db(tx, r[1])
+                for r in tx.query(f"PRAGMA index_list({table})")
+            }
+            for index in set(indices) - current:
                 index.recreate(tx, table)
 
     # Querying.
@@ -1317,7 +1309,7 @@ class Index(NamedTuple):
     """
 
     name: str
-    columns: Sequence[str]
+    columns: tuple[str, ...]
 
     def recreate(self, tx: Transaction, table: str) -> None:
         """Recreate the index in the database.
@@ -1325,14 +1317,10 @@ class Index(NamedTuple):
         This is useful when the index has been changed and needs to be
         updated.
         """
-        tx.script(f"DROP INDEX IF EXISTS {self.name}")
-        self.create(tx, table)
-
-    def create(self, tx: Transaction, table: str) -> None:
-        """Create the index in the database."""
-        return tx.script(
-            f"CREATE INDEX {self.name} ON {table} ({', '.join(self.columns)})"
-        )
+        tx.script(f"""
+            DROP INDEX IF EXISTS {self.name};
+            CREATE INDEX {self.name} ON {table} ({", ".join(self.columns)})
+        """)
 
     @classmethod
     def from_db(cls, tx: Transaction, name: str) -> Index:
@@ -1342,7 +1330,7 @@ class Index(NamedTuple):
         Error will be raised.
         """
         rows = tx.query(f"PRAGMA index_info({name})")
-        columns = [row[2] for row in rows]
+        columns = tuple(row[2] for row in rows)
         return cls(name, columns)
 
     def __hash__(self) -> int:

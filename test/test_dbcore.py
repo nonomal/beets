@@ -800,12 +800,12 @@ class TestIndex:
     @pytest.fixture
     def sample_index(self):
         """Fixture for a sample Index object."""
-        return Index(name="sample_index", columns=["field_one"])
+        return Index(name="sample_index", columns=("field_one",))
 
     def test_index_creation(self, db, sample_index):
         """Test creating an index and checking its existence."""
         with db.transaction() as tx:
-            sample_index.create(tx, "test")
+            sample_index.recreate(tx, "test")
             indexes = (
                 db._connection().execute("PRAGMA index_list(test)").fetchall()
             )
@@ -814,18 +814,18 @@ class TestIndex:
     def test_from_db(self, db, sample_index):
         """Test retrieving an index from the database."""
         with db.transaction() as tx:
-            sample_index.create(tx, "test")
+            sample_index.recreate(tx, "test")
             retrieved = Index.from_db(tx, sample_index.name)
             assert retrieved == sample_index
 
     def test_index_hashing_and_set_behavior(self, sample_index):
         """Test the hashing and set behavior of the Index class."""
         index_set = {sample_index}
-        similar_index = Index(name="sample_index", columns=["field_one"])
+        similar_index = Index(name="sample_index", columns=("field_one",))
 
         assert similar_index in index_set  # Should recognize similar attributes
 
-        different_index = Index(name="other_index", columns=["other_field"])
+        different_index = Index(name="other_index", columns=("other_field",))
         index_set.add(different_index)
 
         assert len(index_set) == 2  # Should recognize distinct index
