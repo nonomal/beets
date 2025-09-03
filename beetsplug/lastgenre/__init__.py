@@ -89,26 +89,16 @@ def find_parents(candidate, branches):
     return [candidate]
 
 
-def split_on_separators(text, separators=None, include_config_separator=None):
+def split_on_separators(text, separators):
     """Split text on multiple separators using regex.
 
     Args:
         text: The string to split
-        separators: List of separator patterns (defaults to DEFAULT_ARTIST_SEPARATORS)
-        include_config_separator: Optional config separator to include in the list
+        separators: List of separator patterns
 
     Returns:
         List of stripped text parts, or [text] if no separators found
     """
-    if separators is None:
-        separators = DEFAULT_ARTIST_SEPARATORS.copy()
-    else:
-        separators = separators.copy()
-
-    # Add config separator if provided
-    if include_config_separator:
-        separators.insert(0, re.escape(include_config_separator))
-
     # Check if any separator exists in the text (unescaped for checking)
     has_separator = any(
         re.sub(r"\\", "", sep) in text for sep in separators
@@ -474,8 +464,7 @@ class LastGenrePlugin(plugins.BeetsPlugin):
                     # Try splitting on separators for multi-artist albums
                     albumartists = split_on_separators(
                         obj.albumartist,
-                        separators=self.config["artist_separators"].as_str_seq(),
-                        include_config_separator=self.config["separator"].get()
+                        separators=self.config["artist_separators"].as_str_seq()
                     )
                     if len(albumartists) > 1:
                         if self.config["extended_debug"]:
