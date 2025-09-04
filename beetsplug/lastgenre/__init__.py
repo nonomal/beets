@@ -44,15 +44,15 @@ PYLAST_EXCEPTIONS = (
 )
 
 DEFAULT_ARTIST_SEPARATORS = [
-    " feat\\. ",
-    " featuring ",
-    " & ",
-    " vs\\. ",
-    " x ",
-    " / ",
-    " + ",
-    " and ",
-    " \\| ",
+    "feat\\.",
+    "featuring",
+    "&",
+    "vs\\.",
+    "\\bx\\b",  # Match "x" only as whole word
+    "/",
+    "+",
+    "and",
+    "\\|",
 ]
 
 
@@ -92,24 +92,22 @@ def find_parents(candidate, branches):
 def split_on_separators(text, separators):
     """Split text on multiple separators using regex.
 
-    Args:
-        text: The string to split
-        separators: List of separator patterns
+    Separators are expected to be defined without whitespace, but during
+    matching, leading and trailing whitespace around separators is ignored.
 
-    Returns:
-        List of stripped text parts, or [text] if no separators found
+    Returns a list of stripped text parts, or [text] if no separators found
     """
-    # Check if any separator exists in the text (unescaped for checking)
-    has_separator = any(
-        re.sub(r"\\", "", sep) in text for sep in separators
-    )
+    # Check each separator individually first
+    for sep in separators:
+        # Create pattern with optional whitespace around separator
+        pattern = f"\\s*{sep}\\s*"
+        if re.search(pattern, text):
+            # Found a separator, split on it
+            parts = re.split(pattern, text)
+            result = [part.strip() for part in parts if part.strip()]
+            return result
 
-    if has_separator:
-        # Split on all separators using regex
-        pattern = "|".join(separators)
-        parts = re.split(pattern, text)
-        return [part.strip() for part in parts if part.strip()]
-
+    # No separators found
     return [text]
 
 
